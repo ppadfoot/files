@@ -1,0 +1,73 @@
+schema_version: 1
+strict: true
+seed: 1729
+checkpoint_policy: mid
+probe_bank: analysis_inputs/gauge_covariant_probe_bank.npz
+output_root: analysis_outputs/gauge_covariant_experiments
+
+data:
+  directory: third_party/Sophia/data/openwebtext
+  train_bin: train.bin
+  val_bin: val.bin
+  block_size: 256
+  forbid_overlapping_sequences: true
+
+states:
+  - key: adamw
+    optimizer: adamw
+    run_dir: runs/final_stage2/adamw_best
+    required: true
+  - key: lion
+    optimizer: lion
+    run_dir: runs/final_stage2/lion_best
+    required: true
+  - key: muon
+    optimizer: muon
+    run_dir: runs/final_stage2/muon_best
+    required: true
+  - key: sgd
+    optimizer: sgd
+    run_dir: runs/final_stage2/sgd_best
+    required: true
+  - key: sophia_rho_0p05
+    optimizer: sophia_official
+    rho: 0.05
+    run_dir: runs/research1_sophia_rho/sophia_official_rho0p05_lr6e-4_wd0p2_clip1
+    required: true
+  - key: sophia_rho_0p2
+    optimizer: sophia_official
+    rho: 0.2
+    run_dir: runs/research1_sophia_rho/sophia_official_rho0p2_lr6e-4_wd0p2_clip1
+    required: true
+  - key: sophia_rho_0p8
+    optimizer: sophia_official
+    rho: 0.8
+    run_dir: runs/research1_sophia_rho/sophia_official_rho0p8_lr6e-4_wd0p2_clip1
+    required: true
+  - key: sophia_rho_1p5
+    optimizer: sophia_official
+    rho: 1.5
+    run_dir: runs/research1_sophia_rho/sophia_official_rho1p5_lr6e-4_wd0p2_clip1
+    required: true
+
+probe_design:
+  attention_blocks: [0, 3, 5]
+  n_pair_batches_quick: 4
+  n_pair_batches_full: 64
+  pair_batch_size_quick: 2
+  pair_batch_size_full: 8
+  n_sequences_quick: 16
+  n_sequences_full: 1024
+  n_token_positions_quick: 4
+  n_token_positions_full: 64
+  max_coordinates_quick: 512
+  max_coordinates_full: 65536
+  batch_sizes_quick: [1, 2, 4]
+  batch_sizes_full: [1, 2, 4, 8, 16, 32, 64, 128]
+
+acceptance:
+  logit_relative_tolerance: 1.0e-6
+  covector_median_relative_error: 1.0e-5
+  covector_q99_relative_error: 1.0e-4
+  null_quantile: 0.95
+  min_required_states: 8
