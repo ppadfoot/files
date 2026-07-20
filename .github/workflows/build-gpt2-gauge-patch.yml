@@ -1,0 +1,109 @@
+name: build-gpt2-gauge-patch
+
+on:
+  push:
+    branches:
+      - chatgpt/gauge-theory-notebooks-v1
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install notebook test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install numpy pandas matplotlib scipy pyyaml jupyter nbconvert ipykernel
+
+      - name: Generate notebooks
+        run: python gpt2_gauge_theory_patch/make_notebooks.py
+
+      - name: Static and mathematical tests
+        run: python gpt2_gauge_theory_patch/test_patch.py
+
+      - name: Execute every notebook in smoke mode
+        env:
+          GAUGE_SMOKE_TEST: '1'
+          MPLBACKEND: Agg
+          GPT2_NANO_REPO: ${{ github.workspace }}/gpt2_gauge_theory_patch/patch
+        run: |
+          cd gpt2_gauge_theory_patch/patch
+          bash scripts/gauge_theory/run_all_notebooks.sh
+
+      - name: Audit executed notebooks
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path('gpt2_gauge_theory_patch/patch')
+          executed = root / 'analysis_outputs/gauge_covariant_theory/executed_notebooks'
+          rows = []
+          for path in sorted(executed.glob('*.ipynb')):
+              nb = json.loads(path.read_text())
+              code = [cell for cell in nb['cells'] if cell['cell_type'] == 'code']
+              errors = [
+                  output
+                  for cell in code
+                  for output in cell.get('outputs', [])
+                  if output.get('output_type') == 'error'
+              ]
+              rows.append({
+                  'notebook': path.name,
+                  'code_cells': len(code),
+                  'executed_cells': sum(cell.get('execution_count') is not None for cell in code),
+                  'outputs': sum(len(cell.get('outputs', [])) for cell in code),
+                  'errors': len(errors),
+              })
+          assert len(rows) == 11, rows
+          assert all(row['errors'] == 0 for row in rows), rows
+          assert all(row['executed_cells'] == row['code_cells'] for row in rows), rows
+          audit = {
+              'all_passed': True,
+              'scope': 'synthetic smoke execution; real checkpoints are not used in CI',
+              'notebooks': rows,
+          }
+          docs = root / 'docs'
+          docs.mkdir(exist_ok=True)
+          (docs / 'GAUGE_NOTEBOOK_EXECUTION_AUDIT.json').write_text(json.dumps(audit, indent=2))
+          lines = ['# Аудит новых gauge-theory notebooks', '', 'Все notebooks выполнены сверху вниз в synthetic smoke mode.', '', '| Notebook | Code cells | Executed | Outputs | Errors |', '|---|---:|---:|---:|---:|']
+          for row in rows:
+              lines.append(f"| {row['notebook']} | {row['code_cells']} | {row['executed_cells']} | {row['outputs']} | {row['errors']} |")
+          lines += ['', 'Smoke mode проверяет программную целостность и математические identities, но не заменяет scientific run на реальных checkpoints.']
+          (docs / 'GAUGE_NOTEBOOK_EXECUTION_AUDIT_RU.md').write_text('\n'.join(lines))
+          print(json.dumps(audit, indent=2))
+          PY
+
+      - name: Build additive patch archive and checksums
+        run: |
+          cd gpt2_gauge_theory_patch
+          python - <<'PY'
+          import hashlib
+          from pathlib import Path
+          root = Path('patch')
+          rows=[]
+          for p in sorted(root.rglob('*')):
+              if p.is_file():
+                  rows.append(f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.relative_to(root)}")
+          (root/'docs'/'GAUGE_PATCH_CHECKSUMS.txt').write_text('\n'.join(rows)+'\n')
+          PY
+          zip -qr gauge_theory_additive_patch_v1.zip patch
+          sha256sum gauge_theory_additive_patch_v1.zip > gauge_theory_additive_patch_v1.sha256
+
+      - name: Upload patch artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpt2-gauge-theory-additive-patch-v1
+          path: |
+            gpt2_gauge_theory_patch/gauge_theory_additive_patch_v1.zip
+            gpt2_gauge_theory_patch/gauge_theory_additive_patch_v1.sha256
+            gpt2_gauge_theory_patch/patch/docs/GAUGE_NOTEBOOK_EXECUTION_AUDIT.json
+            gpt2_gauge_theory_patch/patch/docs/GAUGE_NOTEBOOK_EXECUTION_AUDIT_RU.md
+          if-no-files-found: error
